@@ -1,6 +1,5 @@
 var extend = require('xtend');
-var Transform = require('stream').Transform
-  || require('readable-stream').Transform;
+var Readable = require('stream').Readable
 
 module.exports = Secondary;
 
@@ -13,28 +12,30 @@ function Secondary(db, name, reduce) {
     };
   }
 
-  db.pre(function(change, add) {
-    if (change.type != 'put') return;
-
-    add({
-      type: 'put',
-      key: reduce(change.value),
-      value: change.key,
-      prefix: sub
-    });
-  });
-
   var secondary = {};
   
-  secondary.manifest = {
-    methods: {
-      get: { type: 'async' },
-      del: { type: 'async' },
-      createValueStream: { type: 'readable' },
-      createKeyStream: { type: 'readable' },
-      createReadStream: { type: 'readable' }
+  secondary.updateIndex = indexUpdater('update')
+  secondary.removeIndex = indexUpdater('remove')
+
+  function indexUpdater (op) {
+    return (key, record, cb) => {
+      var subKey = reduce(record)
+      sub.get(subKey, (err, value) => {
+        value = value || []
+        if (op === 'update') {
+          if (value.indexOf(key) === -1) {
+            value.push(key)
+          }
+        } else {
+          let i = value.indexOf(key)
+          if (i !== -1) {
+            value.splice(i, 1)
+          }          
+        }
+        sub.put(subKey, value, cb)
+      })
     }
-  };
+  }
 
   secondary.get = op('get');
   secondary.del = op('del');
@@ -48,7 +49,7 @@ function Secondary(db, name, reduce) {
 
       sub.get(key, function(err, value) {
         if (err) return fn(err);
-        db[type](value, opts, fn);
+        db[type](value[0], opts, fn);
       });
     };
   }
@@ -63,46 +64,48 @@ function Secondary(db, name, reduce) {
     return secondary.createReadStream(opts);
   }
 
-  secondary.createReadStream = function(opts) {
-    opts = opts || {};
-    var tr = Transform({ objectMode: true });
-
-    tr._transform = function(chunk, enc, done) {
-      var key = chunk.value;
-
-      if (opts.values === false) {
-        done(null, key);
-        return;
-      }
-
-      db.get(key, function(err, value) {
-        if (err && err.type == 'NotFoundError') {
-          sub.del(key, done);
-        } else if (err) {
-          done(err);
-        } else {
-          emit();
-        }
-
-        function emit() {
-          if (opts.keys === false) {
-            done(null, value);
-          } else {
-            done(null, {
-              key: key,
-              value: value
-            });
-          }
-        }
-      });
-    };
-
+  secondary.createReadStream = function(opts = {}) {
+    // start read stream
     var opts2 = extend({}, opts);
     opts2.keys = opts2.values = true;
-    sub.createReadStream(opts2).pipe(tr);
+    var rs = sub.createReadStream(opts2)
 
-    return tr;
-  };
+    // start our output stream
+    var outs = new Readable({ objectMode: true, read() {} });
+
+    // handle new datas
+    rs.on('data', ({key, value}) => {
+      value.forEach(key => {
+        if (opts.values === false) {
+          return outs.push(key)
+        }
+
+        db.get(key, (err, value) => {
+          if (err && err.notFound) {
+            sub.del(key)
+          } else if (err) {
+            outs.destroy(err)
+          } else {
+            emit()
+          }
+
+          function emit() {
+            if (opts.keys === false) {
+              outs.push(value)
+            } else {
+              outs.push({key, value})
+            }
+          }
+        })
+      })
+    })
+    rs.on('error', err => outs.destroy(err))
+    rs.on('end', () => {
+      outs.push(null)
+    })
+
+    return outs
+  }
 
   return secondary;
 }

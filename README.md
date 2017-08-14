@@ -76,6 +76,14 @@ posts.put('1337', {
 Return a secondary index that either indexes property `name` or uses a custom
 `reduce` function to map values to indexes.
 
+### Secondary#updateIndex(key, value, cb)
+
+Update the index data for the given key/value. (Must be done on put to keep the index correct.)
+
+### Secondary#removeIndex(key, value, cb)
+
+Remove the index data for the given key/value. (Must be done on del to keep the index correct.)
+
 ### Secondary#get(key, opts[, cb])
 
 Get the value that has been indexed with `key`.
@@ -84,41 +92,11 @@ Get the value that has been indexed with `key`.
 
 Create a readable stream that has indexes as keys and indexed data as values.
 
-### Secondary#manifest
-
-A [level manifest](https://github.com/dominictarr/level-manifest) that you can pass to [multilevel](https://github.com/juliangruber/multilevel).
-
-## Breaking changes
-
-### 1.0.0
-
-What used to be
-
-```js
-db = Secondary('name', db);
-```
-
-is now
-
-```js
-db.byName = Secondary(db, 'name');
-```
-
-Also hooks are used, so it works perfectly with batches across multiple
-sublevels.
-
-## Installation
-
-With [npm](https://npmjs.org) do:
-
-```bash
-npm install level-secondary
-```
-
 ## License
 
 (MIT)
 
+Copyright (c) 2017 Paul Frazee &lt;pfrazee@gmail.com&gt;
 Copyright (c) 2013 Julian Gruber &lt;julian@juliangruber.com&gt;
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of

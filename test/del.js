@@ -4,7 +4,7 @@ var sub = require('level-sublevel');
 var test = require('tape');
 
 test('del', function(t) {
-  t.plan(5);
+  t.plan(6);
   var db = sub(level({ valueEncoding: 'json' }));
 
   var posts = db.sublevel('posts');
@@ -16,22 +16,68 @@ test('del', function(t) {
   }, function(err) {
     t.error(err);
 
-    posts.del('1337', function(err) {
+    posts.byTitle.updateIndex('1337', {
+      title: 'a title',
+      body: 'lorem ipsum'
+    }, err => {
       t.error(err);
 
-      posts.byTitle.get('a title', function(err) {
-        t.ok(err);
-        t.ok(err.notFound);
+      posts.del('1337', function(err) {
+        t.error(err);
 
-        posts.byTitle.createReadStream()
-        .on('data', function() {
-          t.fail();
-        })
-        .on('end', function() {
-          t.ok(true);
+        posts.byTitle.get('a title', function(err) {
+          t.ok(err);
+          t.ok(err.notFound);
+
+          posts.byTitle.createReadStream()
+          .on('data', function() {
+            t.fail();
+          })
+          .on('end', function() {
+            t.ok(true);
+          });
         });
       });
     });
   });
 });
 
+
+test('del', function(t) {
+  t.plan(6);
+  var db = sub(level({ valueEncoding: 'json' }));
+
+  var posts = db.sublevel('posts');
+  posts.byTitle = Secondary(posts, 'title');
+
+  posts.put('1337', {
+    title: 'a title',
+    body: 'lorem ipsum'
+  }, function(err) {
+    t.error(err);
+
+    posts.byTitle.updateIndex('1337', {
+      title: 'a title',
+      body: 'lorem ipsum'
+    }, err => {
+      t.error(err);
+
+      posts.byTitle.del('a title', function(err) {
+        t.error(err);
+
+        posts.byTitle.get('a title', function(err) {
+          t.ok(err);
+          t.ok(err.notFound);
+
+          posts.byTitle.createReadStream()
+          .on('data', function() {
+            t.fail();
+          })
+          .on('end', function() {
+            t.ok(true);
+          });
+        });
+      });
+    });
+  });
+});
