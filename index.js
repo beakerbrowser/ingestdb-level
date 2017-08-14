@@ -1,111 +1,184 @@
-var extend = require('xtend');
-var Readable = require('stream').Readable
+const extend = require('xtend');
+const levelPromisify = require('level-promise')
+const Readable = require('stream').Readable
 
-module.exports = Secondary;
+module.exports = (db, indexSpecs) => {
+  // modernize the api
+  levelPromisify(db)
 
-function Secondary(db, name, reduce) {
-  var sub = db.sublevel(name);
+  // add indexes
+  var indexes = {}
+  indexSpecs.forEach(spec => {
+    const name = normalizeIndexName(spec)
+    indexes[name] = createIndex(db, db.sublevel(name), spec)
+  })
 
-  if (!reduce) {
-    reduce = function(value) {
-      return value[name];
-    };
+  async function addIndexes (key, value) {
+    await Promise.all(Object.keys(indexes).map(i => indexes[i].addIndex(key, value)))
   }
 
-  var secondary = {};
-  
-  secondary.updateIndex = indexUpdater('update')
-  secondary.removeIndex = indexUpdater('remove')
+  async function removeIndexes (key, value) {
+    await Promise.all(Object.keys(indexes).map(i => indexes[i].removeIndex(key, value)))
+  }
 
-  function indexUpdater (op) {
-    return (key, record, cb) => {
-      var subKey = reduce(record)
-      sub.get(subKey, (err, value) => {
-        value = value || []
-        if (op === 'update') {
-          if (value.indexOf(key) === -1) {
-            value.push(key)
-          }
-        } else {
-          let i = value.indexOf(key)
-          if (i !== -1) {
-            value.splice(i, 1)
-          }          
-        }
-        sub.put(subKey, value, cb)
-      })
+  // return wrapped API
+  return {
+    indexes,
+
+    get: db.get.bind(db),
+    createReadStream: db.createReadStream.bind(db),
+    createKeyStream: db.createKeyStream.bind(db),
+    createValueStream: db.createValueStream.bind(db),
+
+    async put (key, value, opts) {
+      try {
+        var oldValue = await this.get(key)
+        await removeIndexes(key, oldValue)
+      } catch (e) {}
+      await db.put(key, value, opts)
+      await addIndexes(key, value)
+    },
+
+    async del (key, opts) {
+      try {
+        var oldValue = await this.get(key)
+        await removeIndexes(key, oldValue)
+      } catch (e) {}
+      await db.del(key, opts)
     }
   }
+}
 
-  secondary.get = op('get');
-  secondary.del = op('del');
+function createIndex (db, sublevel, spec) {
+  const isMultiEntry = spec.startsWith('*')
+  const keyPath = normalizeIndexName(spec).split('+')
 
-  function op(type) {
-    return function (key, opts, fn) {
-      if (typeof opts == 'function') {
-        fn = opts;
-        opts = {};
-      }
+  var index = {
+    addIndex: indexUpdater('add'),
+    removeIndex: indexUpdater('remove'),
 
-      sub.get(key, function(err, value) {
-        if (err) return fn(err);
-        db[type](value[0], opts, fn);
-      });
-    };
-  }
+    async get (key, opts) {
+      var recordKey = await sublevel.get(toKey(key))
+      return db.get(recordKey[0], opts)
+    },
 
-  secondary.createValueStream = function(opts) {
-    (opts && opts || (opts = {})).keys = false;
-    return secondary.createReadStream(opts);
-  }
+    createValueStream (opts = {}) {
+      opts.keys = false
+      return this.createReadStream(opts)
+    },
 
-  secondary.createKeyStream = function(opts) {
-    (opts && opts || (opts = {})).values = false;
-    return secondary.createReadStream(opts);
-  }
+    createKeyStream (opts = {}) {
+      opts.values = false
+      return this.createReadStream(opts)
+    },
 
-  secondary.createReadStream = function(opts = {}) {
-    // start read stream
-    var opts2 = extend({}, opts);
-    opts2.keys = opts2.values = true;
-    var rs = sub.createReadStream(opts2)
+    createReadStream (opts = {}) {
+      // start read stream
+      var opts2  = extend({}, opts)
+      opts2.keys = opts2.values = true
+      opts2.lt   = toKey(opts2.lt)
+      opts2.lte  = toKey(opts2.lte)
+      opts2.gt   = toKey(opts2.gt)
+      opts2.gte  = toKey(opts2.gte)
+      var rs = sublevel.createReadStream(opts2)
 
-    // start our output stream
-    var outs = new Readable({ objectMode: true, read() {} });
+      // start our output stream
+      var outs = new Readable({ objectMode: true, read() {} });
 
-    // handle new datas
-    rs.on('data', ({key, value}) => {
-      value.forEach(key => {
-        if (opts.values === false) {
-          return outs.push(key)
-        }
-
-        db.get(key, (err, value) => {
-          if (err && err.notFound) {
-            sub.del(key)
-          } else if (err) {
-            outs.destroy(err)
-          } else {
-            emit()
+      // handle new datas
+      var inFlight = 0
+      rs.on('data', ({key, value}) => {
+        value.forEach(async recordKey => {
+          if (opts.values === false) {
+            return outs.push(recordKey)
           }
 
-          function emit() {
+          try {
+            inFlight++
+            let value = await db.get(recordKey)
+            inFlight--
             if (opts.keys === false) {
               outs.push(value)
             } else {
-              outs.push({key, value})
+              outs.push({key: recordKey, value})
+            }
+          } catch (e) {
+            if (err.notFound) {
+              await sublevel.del(key)
+            } else {
+              outs.destroy(err)
             }
           }
+
+          checkDone()
         })
       })
-    })
-    rs.on('error', err => outs.destroy(err))
-    rs.on('end', () => {
-      outs.push(null)
-    })
+      rs.on('error', err => outs.destroy(err))
+      rs.on('end', checkDone)
 
-    return outs
+      function checkDone () {
+        if (inFlight === 0) {
+          outs.push(null)
+        }
+      }
+
+      return outs
+    }
   }
 
-  return secondary;
+  function toKey (key) {
+    if (typeof key === 'undefined') return undefined
+    if (Array.isArray(key)) return key.join('!')
+    return key
+  }
+
+  function createKeysFromRecord (record) {
+    if (isMultiEntry) {
+      var values = record[keyPath[0]]
+      return Array.isArray(values) ? values : [values]
+    } else {
+      var path = keyPath.map(key => record[key])
+      return [path.join('!')]
+    }
+  }
+
+  function indexUpdater (op) {
+    return (key, record, cb) => {
+      return Promise.all(createKeysFromRecord(record).map(async indexKey => {
+        // fetch the current index value
+        try {
+          var recordKeys = await sublevel.get(indexKey)
+        } catch (e) {}
+        recordKeys = recordKeys || []
+
+        if (op === 'add') {
+          // add the new record key
+          if (recordKeys.indexOf(key) === -1) {
+            recordKeys.push(key)
+          }
+        } else {
+          // remove the old record key
+          let i = recordKeys.indexOf(key)
+          if (i !== -1) {
+            recordKeys.splice(i, 1)
+          }          
+        }
+
+        // write/del
+        if (recordKeys.length > 0) {
+          await sublevel.put(indexKey, recordKeys)
+        } else {
+          await sublevel.del(indexKey)
+        }
+      }))
+    }
+  }
+
+  return index
+}
+
+
+function normalizeIndexName (index) {
+  if (index.startsWith('*')) return index.slice(1)
+  return index
 }
