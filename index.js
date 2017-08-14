@@ -1,4 +1,4 @@
-const extend = require('xtend');
+const extend = require('xtend')
 const levelPromisify = require('level-promise')
 const Readable = require('stream').Readable
 
@@ -74,16 +74,16 @@ function createIndex (db, sublevel, spec) {
 
     createReadStream (opts = {}) {
       // start read stream
-      var opts2  = extend({}, opts)
+      var opts2 = extend({}, opts)
       opts2.keys = opts2.values = true
-      opts2.lt   = toKey(opts2.lt)
-      opts2.lte  = toKey(opts2.lte)
-      opts2.gt   = toKey(opts2.gt)
-      opts2.gte  = toKey(opts2.gte)
+      opts2.lt = toKey(opts2.lt)
+      opts2.lte = toKey(opts2.lte)
+      opts2.gt = toKey(opts2.gt)
+      opts2.gte = toKey(opts2.gte)
       var rs = sublevel.createReadStream(opts2)
 
       // start our output stream
-      var outs = new Readable({ objectMode: true, read() {} });
+      var outs = new Readable({ objectMode: true, read () {} })
 
       // handle new datas
       var inFlight = 0
@@ -102,7 +102,7 @@ function createIndex (db, sublevel, spec) {
             } else {
               outs.push({key: recordKey, value})
             }
-          } catch (e) {
+          } catch (err) {
             if (err.notFound) {
               await sublevel.del(key)
             } else {
@@ -161,7 +161,7 @@ function createIndex (db, sublevel, spec) {
           let i = recordKeys.indexOf(key)
           if (i !== -1) {
             recordKeys.splice(i, 1)
-          }          
+          }
         }
 
         // write/del
@@ -176,7 +176,6 @@ function createIndex (db, sublevel, spec) {
 
   return index
 }
-
 
 function normalizeIndexName (index) {
   if (index.startsWith('*')) return index.slice(1)
