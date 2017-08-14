@@ -32,20 +32,30 @@ module.exports = (db, indexSpecs) => {
     createValueStream: db.createValueStream.bind(db),
 
     async put (key, value, opts) {
+      var release = await lock('mutate:' + key)
       try {
-        var oldValue = await this.get(key)
-        await removeIndexes(key, oldValue)
-      } catch (e) {}
-      await db.put(key, value, opts)
-      await addIndexes(key, value)
+        try {
+          var oldValue = await this.get(key)
+          await removeIndexes(key, oldValue)
+        } catch (e) {}
+        await db.put(key, value, opts)
+        await addIndexes(key, value)
+      } finally {
+        release()
+      }
     },
 
     async del (key, opts) {
+      var release = await lock('mutate:' + key)
       try {
-        var oldValue = await this.get(key)
-        await removeIndexes(key, oldValue)
-      } catch (e) {}
-      await db.del(key, opts)
+        try {
+          var oldValue = await this.get(key)
+          await removeIndexes(key, oldValue)
+        } catch (e) {}
+        await db.del(key, opts)
+      } finally {
+        release()
+      }
     }
   }
 }
