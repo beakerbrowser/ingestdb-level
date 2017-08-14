@@ -1,6 +1,7 @@
 const extend = require('xtend')
 const levelPromisify = require('level-promise')
 const Readable = require('stream').Readable
+const lock = require('./lock')
 
 module.exports = (db, indexSpecs) => {
   // modernize the api
@@ -145,30 +146,35 @@ function createIndex (db, sublevel, spec) {
   function indexUpdater (op) {
     return (key, record, cb) => {
       return Promise.all(createKeysFromRecord(record).map(async indexKey => {
-        // fetch the current index value
+        var release = await lock(indexKey)
         try {
-          var recordKeys = await sublevel.get(indexKey)
-        } catch (e) {}
-        recordKeys = recordKeys || []
+          // fetch the current index value
+          try {
+            var recordKeys = await sublevel.get(indexKey)
+          } catch (e) {}
+          recordKeys = recordKeys || []
 
-        if (op === 'add') {
-          // add the new record key
-          if (recordKeys.indexOf(key) === -1) {
-            recordKeys.push(key)
+          if (op === 'add') {
+            // add the new record key
+            if (recordKeys.indexOf(key) === -1) {
+              recordKeys.push(key)
+            }
+          } else {
+            // remove the old record key
+            let i = recordKeys.indexOf(key)
+            if (i !== -1) {
+              recordKeys.splice(i, 1)
+            }
           }
-        } else {
-          // remove the old record key
-          let i = recordKeys.indexOf(key)
-          if (i !== -1) {
-            recordKeys.splice(i, 1)
-          }
-        }
 
-        // write/del
-        if (recordKeys.length > 0) {
-          await sublevel.put(indexKey, recordKeys)
-        } else {
-          await sublevel.del(indexKey)
+          // write/del
+          if (recordKeys.length > 0) {
+            await sublevel.put(indexKey, recordKeys)
+          } else {
+            await sublevel.del(indexKey)
+          }
+        } finally {
+          release()
         }
       }))
     }
