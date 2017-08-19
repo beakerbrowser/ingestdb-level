@@ -97,7 +97,7 @@ function createIndex (db, sublevel, spec) {
       var outs = new Readable({ objectMode: true, read () {} })
 
       // handle new datas
-      var inFlight = 0
+      var inFlight = 1
       rs.on('data', ({key, value}) => {
         value.forEach(async recordKey => {
           if (opts.values === false) {
@@ -125,7 +125,10 @@ function createIndex (db, sublevel, spec) {
         })
       })
       rs.on('error', err => outs.destroy(err))
-      rs.on('end', checkDone)
+      rs.on('end', () => {
+        inFlight--
+        checkDone()
+      })
 
       function checkDone () {
         if (inFlight === 0) {
