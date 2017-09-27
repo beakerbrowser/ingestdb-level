@@ -1,12 +1,12 @@
 {
-  "name": "injestdb-level",
+  "name": "ingestdb-level",
   "description": "Secondary indexes and utilities for leveldb.",
   "version": "1.0.5",
   "repository": {
     "type": "git",
-    "url": "git://github.com/beakerbrowser/injestdb-level.git"
+    "url": "git://github.com/beakerbrowser/ingestdb-level.git"
   },
-  "homepage": "https://github.com/beakerbrowser/injestdb-level",
+  "homepage": "https://github.com/beakerbrowser/ingestdb-level",
   "main": "index.js",
   "scripts": {
     "test": "ava test.js"

@@ -1,6 +1,4 @@
-# injestdb-level
-
-**Renamed to [ingestdb-level](https://npm.im/ingestdb-level)**
+# ingestdb-level
 
 Secondary indexes and promisification for leveldb.
 
@@ -8,10 +6,10 @@ Secondary indexes and promisification for leveldb.
 
 ```js
 const level = require('level')
-const injestdbLevel = require('injestdb-level')
+const ingestdbLevel = require('ingestdb-level')
 const sub = require('level-sublevel')
 
-const db = injestdbLevel(sub(level(__dirname + '/db', {
+const db = ingestdbLevel(sub(level(__dirname + '/db', {
   valueEncoding: 'json'
 })), ['lastName', 'lastName+firstName', '*attributes'])
 
@@ -42,8 +40,8 @@ db.indexes.attributes.createValueStream({gte: 'hacker', lte: 'hacker'}) // => [P
 ## API
 
 ```js
-const injestdbLevel = require('injestdb-level')
-const db = injestdbLevel(level, indexesSpec)
+const ingestdbLevel = require('ingestdb-level')
+const db = ingestdbLevel(level, indexesSpec)
 await db.get(key, opts)
 await db.put(key, value, opts)
 await db.del(key, opts)
