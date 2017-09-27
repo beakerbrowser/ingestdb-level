@@ -1,5 +1,7 @@
 # injestdb-level
 
+**Renamed to [ingestdb-level](https://npm.im/ingestdb-level)**
+
 Secondary indexes and promisification for leveldb.
 
 ## Example
